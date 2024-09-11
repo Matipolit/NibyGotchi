@@ -4,6 +4,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <map>
+#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
+
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -15,6 +18,36 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 const int button_a_pin = 14;
 const int button_b_pin = 16;
 
+const char* server = "matipolit.ovh";
+const int port = 443;
+
+// Password is injected during compile time
+const char* hashed_password = NIBYGOTCHI_PASS_HASH;
+
+// Server path with the injected password
+String serverPath = String("/nibygotchi?passwd=") + hashed_password;
+
+static const unsigned char PROGMEM wifi_icon_bmp[] = {
+ 0b00000000,
+ 0b00111100,
+ 0b01000010,
+ 0b10000001,
+ 0b00111100,
+ 0b01000010,
+ 0b00000000,
+ 0b00011000,
+};
+
+static const unsigned char PROGMEM no_wifi_icon_bmp[] = {
+ 0b10000000,
+ 0b01111100,
+ 0b01100010,
+ 0b10010001,
+ 0b00111100,
+ 0b01000110,
+ 0b00000010,
+ 0b00011001,
+};
 
 static const unsigned char PROGMEM usmieszek_bmp[] = {
  0b00000000,
@@ -223,7 +256,7 @@ enum CreatureState{awaken, asleep, watching_tv, playing_game};
 
 enum CreatureSpecialState{normal, sick};
 
-const int creature_timer_delta = 100;
+const int creature_timer_delta = 250;
 
 class Creature{
   private:
@@ -239,6 +272,21 @@ class Creature{
     int energy;
     int happiness;
     int fullness;
+
+    void updateFromJson(JsonObject& json) {
+      excess_fullness = json["excess_fullness"];
+      energy = json["energy"];
+      happiness = json["happiness"];
+      fullness = json["fullness"];
+    }
+
+    // Method to create a JSON object from the creature data
+    void toJson(JsonObject& json) {
+      json["excess_fullness"] = excess_fullness;
+      json["energy"] = energy;
+      json["happiness"] = happiness;
+      json["fullness"] = fullness;
+    }
 
     Creature(){
       energy = 100;
@@ -310,7 +358,7 @@ class Creature{
     }
 
     void draw(int frame){
-      if (state == awaken) {
+      if (state == awaken || state == watching_tv) {
         display.drawBitmap(48, 2, body_frames[frame], 24, 24, SSD1306_WHITE);
         if (happiness > 50){
           display.drawBitmap(56, 4, face_happy_bmp, 8, 8, SSD1306_WHITE);
@@ -344,7 +392,7 @@ class Creature{
     }
 };
 
-enum GameState {main_interface, options_interface, feeding, selecting_game, sleep};
+enum GameState {main_interface, options_interface, feeding, sleep};
 
 void draw_stat(int whichInOrder, int value, const unsigned char *bitmap) {
   if(value > 100){
@@ -534,12 +582,92 @@ Creature creature;
 GameState game_state;
 int option_selected;
 
+void retrieveStatsFromServer() {
+  WiFiClientSecure client;
+  client.setInsecure(); // Skip SSL certificate validation
+
+  if (client.connect(server, port)) {
+    Serial.println("Connected to server");
+
+    client.print(String("GET ") + serverPath + " HTTP/1.1\r\n" +
+                 "Host: " + server + "\r\n" + 
+                 "Connection: close\r\n\r\n");
+
+    while (client.connected() || client.available()) {
+      if (client.available()) {
+        String line = client.readStringUntil('\n');
+        if (line == "\r") break;
+      }
+    }
+
+    String jsonData;
+    while (client.available()) {
+      jsonData += client.readString();
+    }
+
+    Serial.println("Response: ");
+    Serial.println(jsonData);
+
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, jsonData);
+    if (!error) {
+      JsonObject json = doc.as<JsonObject>();
+      creature.updateFromJson(json);
+      Serial.println("Creature updated with server data.");
+    } else {
+      Serial.print("Failed to parse JSON: ");
+      Serial.println(error.c_str());
+    }
+  } else {
+    Serial.println("Connection failed!");
+  }
+
+  client.stop();
+}
+
+void uploadStatsToServer() {
+  WiFiClientSecure client;
+  client.setInsecure(); // Skip SSL certificate validation
+
+  if (client.connect(server, port)) {
+    Serial.println("Connected to server for POST");
+
+    StaticJsonDocument<512> doc;
+    JsonObject json = doc.to<JsonObject>();
+    creature.toJson(json);
+
+    String postData;
+    serializeJson(json, postData);
+
+    client.print(String("POST ") + "/nibygotchi?passwd=your-hashed-password" + " HTTP/1.1\r\n" +
+                 "Host: " + server + "\r\n" + 
+                 "Content-Type: application/json\r\n" + 
+                 "Content-Length: " + postData.length() + "\r\n" +
+                 "Connection: close\r\n\r\n" + 
+                 postData + "\r\n");
+
+    while (client.connected() || client.available()) {
+      if (client.available()) {
+        String response = client.readString();
+        Serial.println("Response:");
+        Serial.println(response);
+      }
+    }
+  } else {
+    Serial.println("POST Connection failed!");
+  }
+
+  client.stop();
+}
+
 void setup() {
   Serial.begin(9600);
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
+
+  Serial.println("Using server: " + serverPath);
   display.clearDisplay();
   creature = Creature();
 
@@ -548,6 +676,8 @@ void setup() {
 
   pinMode(button_a_pin, INPUT);
   pinMode(button_b_pin, INPUT);
+
+  WiFi.begin("PLAY_Swiatlowodowy_58D2", "6FqTVw@KWBf%");
 
 }
 
@@ -589,6 +719,9 @@ void loop() {
   }
 
   if(game_state != sleep){
+
+
+
     if(button_a_queued){
       option_selected += 1;
       button_a_queued = false;
@@ -608,6 +741,14 @@ void loop() {
         }
       }
       draw_menu(game_state, option_selected, button_b_queued, creature);
+
+      if(WiFi.status() != WL_CONNECTED){
+        display.drawBitmap(120, 56, no_wifi_icon_bmp, 8, 8, SSD1306_WHITE);
+
+      }else{
+        display.drawBitmap(120, 56, wifi_icon_bmp, 8, 8, SSD1306_WHITE);
+      }
+
       display.display();
       if (frame < 5){
           frame++;
@@ -615,6 +756,7 @@ void loop() {
           frame = 0;
       }
     }
+
   }else{
     if(button_a_queued || button_b_queued){
       game_state = main_interface;
