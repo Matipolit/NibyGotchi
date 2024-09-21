@@ -3,9 +3,14 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <map>
 #include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
 #include <ArduinoJson.h>
+#include <Ticker.h>
+
+#include<Creature.h>
+#include<bitmaps.h>
+#include<Game.h>
 
 
 #define SCREEN_WIDTH 128
@@ -18,381 +23,192 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 const int button_a_pin = 14;
 const int button_b_pin = 16;
 
+Creature creature;
+
+int hi_score = 0;
+
+// NETWORK SHIT
+
 const char* server = "matipolit.ovh";
-const int port = 443;
+const int port = 80;
 
 // Password is injected during compile time
 const char* hashed_password = NIBYGOTCHI_PASS_HASH;
 
-// Server path with the injected password
 String serverPath = String("/nibygotchi?passwd=") + hashed_password;
 
-static const unsigned char PROGMEM wifi_icon_bmp[] = {
- 0b00000000,
- 0b00111100,
- 0b01000010,
- 0b10000001,
- 0b00111100,
- 0b01000010,
- 0b00000000,
- 0b00011000,
-};
-
-static const unsigned char PROGMEM no_wifi_icon_bmp[] = {
- 0b10000000,
- 0b01111100,
- 0b01100010,
- 0b10010001,
- 0b00111100,
- 0b01000110,
- 0b00000010,
- 0b00011001,
-};
-
-static const unsigned char PROGMEM usmieszek_bmp[] = {
- 0b00000000,
- 0b00000000,
- 0b01100110,
- 0b01000010,
- 0b00000000,
- 0b10000001,
- 0b01000010,
- 0b00111100,
-};
-
-static const unsigned char PROGMEM energy_bmp[] = {
- 0b00011100,
- 0b00100100,
- 0b00101000,
- 0b01001100,
- 0b01100100,
- 0b00010100,
- 0b00101000,
- 0b00110000,
-};
-
-static const unsigned char PROGMEM fork_knife_bmp[] = {
- 0b10100110,
- 0b10100101,
- 0b10100101,
- 0b11100101,
- 0b01000110,
- 0b01000100,
- 0b01000100,
- 0b01000100,
-};
-
-static const unsigned char PROGMEM face_happy_bmp[] = {
- 0b00000000,
- 0b00000000,
- 0b10000001,
- 0b00000000,
- 0b00000000,
- 0b11111111,
- 0b01111110,
- 0b00000000,
-};
-
-static const unsigned char PROGMEM face_sad_bmp[] = {
- 0b00000000,
- 0b00000000,
- 0b10000001,
- 0b00000000,
- 0b00000000,
- 0b01111110,
- 0b11111111,
- 0b00000000,
-};
-
-static const unsigned char PROGMEM face_asleep_bmp[] = {
- 0b00000000,
- 0b00000000,
- 0b11000011,
- 0b00000000,
- 0b00000000,
- 0b11111111,
- 0b00001100,
- 0b00000000,
-};
-
-// 16x16
-static const unsigned char PROGMEM thermomether[] = {
- 0b00000010, 0b00000000,
- 0b00000101, 0b00000000,
- 0b00000101, 0b00000000,
- 0b00000100, 0b10000000,
- 0b00000010, 0b10000000,
- 0b00000010, 0b01000000,
- 0b00000001, 0b01000000,
- 0b00000001, 0b00100000,
- 0b00000000, 0b10100000,
- 0b00000000, 0b10010000,
- 0b00000000, 0b01010000,
- 0b00000000, 0b01001000,
- 0b00000000, 0b10000100,
- 0b00000000, 0b10000100,
- 0b00000000, 0b01001000,
- 0b00000000, 0b00110000,
-};
-
-static const unsigned char PROGMEM body_1_bmp[] = {
- 0b00000000, 0b11100111, 0b00000000,
- 0b00000001, 0b00011000, 0b10000000,
- 0b00000001, 0b00000000, 0b10000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00110010, 0b00000000, 0b01001100,
- 0b01001010, 0b00000000, 0b01010010,
- 0b10000110, 0b00000000, 0b01100001,
- 0b01000100, 0b00000000, 0b01000010,
- 0b01000000, 0b00000000, 0b00000010,
- 0b00110000, 0b00000000, 0b00001100,
- 0b00001100, 0b00000000, 0b00110000,
- 0b00000100, 0b00000000, 0b00100000,
- 0b00000100, 0b00000000, 0b00100000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00010000, 0b00000000, 0b00001000,
- 0b00100000, 0b00000000, 0b00000100,
- 0b00100000, 0b00000000, 0b00000100,
- 0b01000000, 0b00000000, 0b00000010,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b11000000, 0b00000000, 0b00000011,
- 0b00110001, 0b11000011, 0b10001100,
- 0b00001110, 0b00111100, 0b01110000,
-};
-
-static const unsigned char PROGMEM body_2_bmp[] = {
- 0b00000000, 0b11100111, 0b00000000,
- 0b00000001, 0b00011000, 0b10000000,
- 0b00000001, 0b00000000, 0b10000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b01110010, 0b00000000, 0b01011110,
- 0b10001010, 0b00000000, 0b00100001,
- 0b10000100, 0b00000000, 0b01000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b01000000, 0b00000000, 0b00000010,
- 0b00111100, 0b00000000, 0b00111100,
- 0b00000100, 0b00000000, 0b00100000,
- 0b00000100, 0b00000000, 0b00100000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00010000, 0b00000000, 0b00001000,
- 0b00100000, 0b00000000, 0b00000100,
- 0b00100000, 0b00000000, 0b00000100,
- 0b01000000, 0b00000000, 0b00000010,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b11000000, 0b00000000, 0b00000011,
- 0b00111000, 0b11100001, 0b11000100,
- 0b00000111, 0b00011110, 0b00111000,
-};
-
-static const unsigned char PROGMEM body_3_bmp[] = {
- 0b00000000, 0b11100111, 0b00000000,
- 0b00000001, 0b00011000, 0b10000000,
- 0b00000001, 0b00000000, 0b10000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b01111100, 0b00000000, 0b00111110,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b01111100, 0b00000000, 0b00011110,
- 0b00000100, 0b00000000, 0b00100000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00010000, 0b00000000, 0b00001000,
- 0b00100000, 0b00000000, 0b00000100,
- 0b00100000, 0b00000000, 0b00000100,
- 0b01000000, 0b00000000, 0b00000010,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000011,
- 0b01011100, 0b01110000, 0b11100100,
- 0b00100011, 0b10001111, 0b00011000,
-};
-
-static const unsigned char PROGMEM body_4_bmp[] = {
- 0b00000000, 0b11100111, 0b00000000,
- 0b00000001, 0b00011000, 0b10000000,
- 0b00000001, 0b00000000, 0b10000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00000010, 0b00000000, 0b01000000,
- 0b00001100, 0b00000000, 0b00110000,
- 0b01110000, 0b00000000, 0b00001110,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10001100, 0b00000000, 0b00010001,
- 0b01110100, 0b00000000, 0b00101110,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00001000, 0b00000000, 0b00010000,
- 0b00010000, 0b00000000, 0b00001000,
- 0b00100000, 0b00000000, 0b00000100,
- 0b00100000, 0b00000000, 0b00000100,
- 0b01000000, 0b00000000, 0b00000010,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b10000000, 0b00000000, 0b00000001,
- 0b01001100, 0b00111000, 0b01110010,
- 0b00110011, 0b11000111, 0b10001100,
-};
-
-static const unsigned char* const PROGMEM body_frames[] = {
-  body_1_bmp,
-  body_2_bmp,
-  body_3_bmp,
-  body_4_bmp,
-  body_3_bmp,
-  body_2_bmp
-};
-
-enum CreatureState{awaken, asleep, watching_tv, playing_game};
-
-enum CreatureSpecialState{normal, sick};
-
-const int creature_timer_delta = 250;
-
-class Creature{
-  private:
-    int excess_fullness;
-
-    int fullness_timer;
-    int happiness_timer;
-    int energy_timer;
-
+class Network {
   public:
-    CreatureState state;
-    CreatureSpecialState special_state;
-    int energy;
-    int happiness;
-    int fullness;
-
-    void updateFromJson(JsonObject& json) {
-      excess_fullness = json["excess_fullness"];
-      energy = json["energy"];
-      happiness = json["happiness"];
-      fullness = json["fullness"];
-    }
-
-    // Method to create a JSON object from the creature data
-    void toJson(JsonObject& json) {
-      json["excess_fullness"] = excess_fullness;
-      json["energy"] = energy;
-      json["happiness"] = happiness;
-      json["fullness"] = fullness;
-    }
-
-    Creature(){
-      energy = 100;
-      happiness = 100;
-      fullness = 100;
-
-      energy_timer = creature_timer_delta;
-      happiness_timer = creature_timer_delta;
-      fullness_timer = creature_timer_delta;
-
-      state = awaken;
-      special_state = normal;
-    }
-
-    void tick(){
-      if(state == awaken){
-        if(special_state == sick){
-          fullness_timer -= 4;
-          happiness_timer -= 6;
-          energy_timer -=3;
-        }else{
-          fullness_timer -= 2;
-          happiness_timer -= 2;
-          energy_timer -= 2;
-        }
-      }else{
-          fullness_timer -= 1;
-          happiness_timer -= 1;
-          energy_timer -= 1;
-      }
-
-      if( happiness_timer <= 0){
-        if(state == awaken){
-          happiness -= 1;
-        }else if(state == watching_tv){
-          happiness += 3;
-        }else if(state == playing_game){
-          happiness += 10;
-        }
-        happiness_timer = creature_timer_delta;
-
-      }
-      if(energy_timer <= 0){
-        if(state == awaken){
-          energy -= 1;
-        }else if(state == asleep){
-          energy += 2;
-        }else if(state == watching_tv){
-          energy -= 2;
-        }else if(state == playing_game){
-          energy -= 6;
-        }
-        energy_timer = creature_timer_delta;
-      }
-      if(fullness_timer <= 0){
-        if(state == playing_game){
-          fullness -= 3;
-        }else{
-          fullness -= 1;
-        }
-        fullness_timer = creature_timer_delta;
-      }
-
-      if(fullness > 110){
-        special_state = sick;
-      }else{
-        special_state = normal;
-      }
-    }
-
-    void draw(int frame){
-      if (state == awaken || state == watching_tv) {
-        display.drawBitmap(48, 2, body_frames[frame], 24, 24, SSD1306_WHITE);
-        if (happiness > 50){
-          display.drawBitmap(56, 4, face_happy_bmp, 8, 8, SSD1306_WHITE);
-        }else{
-          display.drawBitmap(56, 4, face_sad_bmp, 8, 8, SSD1306_WHITE);
-        }
-      }else{
-        display.drawBitmap(48, 2, body_4_bmp, 24, 24, SSD1306_WHITE);
-        display.drawBitmap(56, 4, face_asleep_bmp, 8, 8, SSD1306_WHITE);
-
-      }
-
-
-      if (special_state == sick){
-        display.drawBitmap(72, 4, thermomether, 16, 16, SSD1306_WHITE);
-      }
-    }
-
-    void put_to_sleep(){
-      if(special_state != sick){
-        state = asleep;
-      }
-    }
-
-    void awake(){
-      state = awaken;
-    }
-
-    void feed(int hunger_points){
-      fullness += hunger_points;
-    }
+    String name;
+    String ssid;
+    String password;
 };
 
-enum GameState {main_interface, options_interface, feeding, sleep};
+Network networks[4];
+
+void connect_to_network(Network &network){
+  WiFi.begin(network.ssid, network.password);
+}
+
+int current_network;
+
+
+AsyncClient client;
+String jsonData = "";
+
+void uploadStatsToServer();
+void sendPostData();
+void onData(void* arg, AsyncClient* client, void* data, size_t len);
+void onDisconnect(void* arg, AsyncClient* client);
+
+bool first_download_from_server = false;
+
+void uploadStatsToServer() {
+  Serial.println("Running 'upload stats to server'");
+  if (WiFi.status() == WL_CONNECTED && !client.connected() && first_download_from_server) {
+    Serial.println("Client not connected");
+    sendPostData();
+  } else {
+    Serial.println("WiFi disconnected or client already connected.");
+  }
+}
+
+void sendPostData() {
+  // Prepare the JSON data
+  StaticJsonDocument<200> jsonDoc;
+  jsonDoc["energy"] = creature.energy;
+  jsonDoc["happiness"] = creature.happiness;
+  jsonDoc["fullness"] = creature.fullness;
+  jsonDoc["hi_score"] = hi_score;
+
+  String jsonStr;
+  serializeJson(jsonDoc, jsonStr);
+  
+  // Create HTTP POST request
+  String request = String("POST ") + serverPath + " HTTP/1.1\r\n" +
+                   "Host: " + server + "\r\n" +
+                   "Content-Type: application/json\r\n" +
+                   "Content-Length: " + String(jsonStr.length()) + "\r\n" +
+                   "Connection: close\r\n\r\n" +
+                   jsonStr;
+
+  client.onData(onData);
+  client.onDisconnect(onDisconnect);
+  client.connect(server, port);
+
+  // Send the POST request once connected
+  client.onConnect([request](void* arg, AsyncClient* client) {
+    Serial.println("Connected to server");
+    client->write(request.c_str());
+  });
+}
+
+void onData(void* arg, AsyncClient* client, void* data, size_t len) {
+  jsonData += String((char*)data).substring(0, len);
+  Serial.println("Received response:");
+  Serial.println(jsonData);
+}
+
+void onDisconnect(void* arg, AsyncClient* client) {
+  Serial.println("Disconnected from server");
+
+  jsonData = "";
+}
+
+void retrieveStatsFromServer() {
+  Serial.println("Running 'retrieve stats from server'");
+  AsyncClient* client = new AsyncClient();  // Create a new AsyncClient
+
+  if (!client) {
+    Serial.println("Failed to create client");
+    return;
+  }
+
+  // Connect callback
+  client->onConnect([](void* arg, AsyncClient* client) {
+    Serial.println("Connected to server");
+
+    // Send the GET request to the server
+    String request = String("GET ") + serverPath + " HTTP/1.1\r\n" +
+                     "Host: " + server + "\r\n" +
+                     "Connection: close\r\n\r\n";
+
+    client->write(request.c_str());
+
+  }, nullptr);
+
+  // Data receive callback
+  client->onData([](void* arg, AsyncClient* client, void* data, size_t len) {
+    static String jsonData = "";  // Hold the complete JSON data
+    String response = String((char*)data).substring(0, len);  // Get data chunk
+
+    Serial.println("Received data chunk:");
+    Serial.println(response);
+
+    // Handle chunked encoding: strip the chunk size and only append valid data
+    int chunkSizeStart = response.indexOf("\r\n");
+    if (chunkSizeStart != -1) {
+      // Strip the chunk size if it's present
+      String chunkData = response.substring(chunkSizeStart + 6);  // Skip the chunk size
+      jsonData += chunkData;  // Append valid chunk data to jsonData
+
+      // Check if the response ends with the last chunk ("0\r\n")
+      if (jsonData.indexOf("0\r\n") != -1) {
+        jsonData.replace("0\r\n", "");  // Remove the last chunk size indicator
+
+        // Now, handle the JSON content
+        int jsonStartIdx = jsonData.indexOf("\r\n\r\n");
+        if (jsonStartIdx != -1) {
+          String jsonBody = jsonData.substring(jsonStartIdx + 6);  // Skip HTTP headers
+          Serial.println("Final Response: ");
+          Serial.println(jsonBody);
+
+          // Parse the JSON data
+          StaticJsonDocument<512> doc;
+          DeserializationError error = deserializeJson(doc, jsonBody);
+          if (!error) {
+            JsonObject json = doc.as<JsonObject>();
+            creature.updateFromJson(json);  // Assuming creature.updateFromJson is defined
+            hi_score = json["hi_score"];
+            Serial.println("Creature updated with server data.");
+          } else {
+            Serial.print("Failed to parse JSON: ");
+            Serial.println(error.c_str());
+          }
+        }
+        jsonData = "";  // Clear the buffer after parsing
+      }
+    } else {
+      Serial.println("No chunk size available");
+      // In case there's no chunk size, just append the response
+      jsonData += response;
+    }
+  }, nullptr);
+
+  // Error callback
+  client->onError([](void* arg, AsyncClient* client, int8_t error) {
+    Serial.print("Connection error: ");
+    Serial.println(error);
+    delete client;  // Clean up the client
+  }, nullptr);
+
+  // Disconnect callback
+  client->onDisconnect([](void* arg, AsyncClient* client) {
+    Serial.println("Disconnected from server");
+    delete client;  // Clean up the client
+  }, nullptr);
+
+  // Timeout callback
+  client->onTimeout([](void* arg, AsyncClient* client, uint32_t time) {
+    Serial.println("Connection timed out");
+    delete client;  // Clean up the client
+  }, nullptr);
+
+  // Start connection
+  client->connect(server, port);  // Connect to the server
+}
+
+enum GameState {main_interface, options_interface, feeding, sleep, wifi_selection, game_selection};
 
 void draw_stat(int whichInOrder, int value, const unsigned char *bitmap) {
   if(value > 100){
@@ -416,13 +232,13 @@ int draw_menu_option(bool selected, String text, int start_coord, int row){
   int length = 0;
   display.setTextSize(1);      // Normal 1:1 pixel scale
   if(selected){
-    display.fillRoundRect(start_coord+2, 36 + row * 14, text.length()*6 + 1, 9, 2, SSD1306_WHITE);
+    display.fillRoundRect(start_coord+2, 4 + row * 15, text.length()*6 + 1, 9, 2, SSD1306_WHITE);
     display.setTextColor(SSD1306_BLACK);
   }else{
     display.setTextColor(SSD1306_WHITE);
   }
-  display.drawRoundRect(start_coord, 34 + row * 14, text.length()*6 + 5, 13, 2, SSD1306_WHITE);
-  display.setCursor(start_coord+3, 37 + row * 14);
+  display.drawRoundRect(start_coord, 2 + row * 15, text.length()*6 + 5, 13, 2, SSD1306_WHITE);
+  display.setCursor(start_coord+3, 5 + row * 15);
 
   for(char& c : text) {
     length ++;
@@ -431,13 +247,15 @@ int draw_menu_option(bool selected, String text, int start_coord, int row){
   return length;
 }
 
+Ticker upload_stats_ticker(uploadStatsToServer, 15000);
 
-void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creature &creature){
+void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &game){
   switch(game_state){
     case options_interface:{
-      int menu_selected = selected % 3;
+      int menu_selected = selected % 4;
       int len = draw_menu_option(menu_selected==1, "uspij", 2, 0);
-      len += draw_menu_option(menu_selected==2, "powrot", 8+len*6, 0);
+      len += draw_menu_option(menu_selected==2, "wifi", 8+len*6, 0);
+      len += draw_menu_option(menu_selected==3, "powrot", 14+len*6, 0);
       if(accept_queue){
         switch(menu_selected){
           case 1: {
@@ -448,8 +266,56 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
             break;
           }
           case 2: {
+              game_state = wifi_selection;
+              menu_selected = 0;
+              break;
+          }
+          case 3: {
             game_state = main_interface;
             menu_selected = 0;
+            break;
+          }
+        }
+        accept_queue = false;
+      }
+      break;
+    };
+    case wifi_selection: {
+      int menu_selected = selected % 6;
+      int len = draw_menu_option(menu_selected==1 || current_network == 0, networks[0].name, 2, 0);
+      draw_menu_option(menu_selected==2 || current_network == 1, networks[1].name, 2, 1);
+      draw_menu_option(menu_selected==3 || current_network == 2, networks[2].name, 2, 2);
+      draw_menu_option(menu_selected==4 || current_network == 3, networks[3].name, 2, 3);
+      draw_menu_option(menu_selected==5, "powrot", 8+len*6, 0);
+      if(accept_queue){
+        if(menu_selected == 5){
+          game_state = main_interface;
+          menu_selected = 0;
+        }else{
+          current_network = menu_selected - 1;
+          connect_to_network(networks[current_network]);
+        }
+        accept_queue = false;
+      }
+      break;
+    };
+    case game_selection: {
+      int menu_selected = selected % 3;
+      int len = draw_menu_option(menu_selected==1, "graj", 2, 3);
+      len += draw_menu_option(menu_selected==2, "powrot", 8+len*6, 3);
+      if(accept_queue){
+        switch(menu_selected){
+          case 1: {
+            creature.state = playing_game;
+            selected = 0;
+            upload_stats_ticker.pause();
+            game = Game();
+            break;
+          }
+          case 2: {
+            game_state = main_interface;
+            creature.state = awaken;
+            selected = 0;
             break;
           }
         }
@@ -462,11 +328,11 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
       int len;
       if(creature.state == awaken){
         menu_selected = selected % 6;
-        len = draw_menu_option(menu_selected==1, "uspij", 2, 0);
-        len += draw_menu_option(menu_selected==2, "nakarm", 8+len*6, 0);
-        len += draw_menu_option(menu_selected==3, "tv", 14+len*6, 0);
-        len += draw_menu_option(menu_selected==4, "gry", 20+len*6, 0);
-        len += draw_menu_option(menu_selected==5, "opcje", 2, 1);
+        len = draw_menu_option(menu_selected==1, "uspij", 2, 2);
+        len += draw_menu_option(menu_selected==2, "nakarm", 8+len*6, 2);
+        len += draw_menu_option(menu_selected==3, "tv", 14+len*6, 2);
+        len += draw_menu_option(menu_selected==4, "gry", 20+len*6, 2);
+        len += draw_menu_option(menu_selected==5, "opcje", 2, 3);
 
         if(accept_queue){
           switch(menu_selected){
@@ -485,6 +351,11 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
               selected = 0;
               break;
             }
+            case 4: {
+                game_state = game_selection;
+                selected = 0;
+                break;
+              }
             case 5: {
               game_state = options_interface;
               selected = 0;
@@ -495,8 +366,8 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
         }
       }else if(creature.state == asleep){
         menu_selected = selected % 3;
-        len = draw_menu_option(menu_selected==1, "obudz", 2, 0);
-        len += draw_menu_option(menu_selected==2, "opcje", 2, 1);
+        len = draw_menu_option(menu_selected==1, "obudz", 2, 2);
+        len += draw_menu_option(menu_selected==2, "opcje", 2, 3);
 
         if(accept_queue){
           switch(menu_selected){
@@ -514,9 +385,9 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
         }
       }else if(creature.state == watching_tv){
         int menu_selected = selected % 4;
-        int len = draw_menu_option(menu_selected==1, "przerwij", 2, 0);
-        len += draw_menu_option(menu_selected==2, "nakarm", 8+len*6, 0);
-        len += draw_menu_option(menu_selected==3, "opcje", 2, 1);
+        int len = draw_menu_option(menu_selected==1, "przerwij", 2, 2);
+        len += draw_menu_option(menu_selected==2, "nakarm", 8+len*6, 2);
+        len += draw_menu_option(menu_selected==3, "opcje", 2, 3);
         if(accept_queue){
           switch(menu_selected){
             case 1: {
@@ -543,9 +414,9 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Creatur
     }
     case feeding:{
       int menu_selected = selected % 4;
-      int len = draw_menu_option(menu_selected==1, "burger", 2, 0);
-      len += draw_menu_option(menu_selected==2, "pizza", 8+len*6, 0);
-      len = draw_menu_option(menu_selected==3, "powrot", 2, 1);
+      int len = draw_menu_option(menu_selected==1, "burger", 2, 2);
+      len += draw_menu_option(menu_selected==2, "pizza", 8+len*6, 2);
+      len = draw_menu_option(menu_selected==3, "powrot", 2, 3);
       if(accept_queue){
         switch(menu_selected){
           case 1: {
@@ -577,90 +448,12 @@ void draw_tv(int frame){
   }
 }
 
-
-Creature creature;
+Game game;
 GameState game_state;
 int option_selected;
 
-void retrieveStatsFromServer() {
-  WiFiClientSecure client;
-  client.setInsecure(); // Skip SSL certificate validation
-
-  if (client.connect(server, port)) {
-    Serial.println("Connected to server");
-
-    client.print(String("GET ") + serverPath + " HTTP/1.1\r\n" +
-                 "Host: " + server + "\r\n" + 
-                 "Connection: close\r\n\r\n");
-
-    while (client.connected() || client.available()) {
-      if (client.available()) {
-        String line = client.readStringUntil('\n');
-        if (line == "\r") break;
-      }
-    }
-
-    String jsonData;
-    while (client.available()) {
-      jsonData += client.readString();
-    }
-
-    Serial.println("Response: ");
-    Serial.println(jsonData);
-
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, jsonData);
-    if (!error) {
-      JsonObject json = doc.as<JsonObject>();
-      creature.updateFromJson(json);
-      Serial.println("Creature updated with server data.");
-    } else {
-      Serial.print("Failed to parse JSON: ");
-      Serial.println(error.c_str());
-    }
-  } else {
-    Serial.println("Connection failed!");
-  }
-
-  client.stop();
-}
-
-void uploadStatsToServer() {
-  WiFiClientSecure client;
-  client.setInsecure(); // Skip SSL certificate validation
-
-  if (client.connect(server, port)) {
-    Serial.println("Connected to server for POST");
-
-    StaticJsonDocument<512> doc;
-    JsonObject json = doc.to<JsonObject>();
-    creature.toJson(json);
-
-    String postData;
-    serializeJson(json, postData);
-
-    client.print(String("POST ") + "/nibygotchi?passwd=your-hashed-password" + " HTTP/1.1\r\n" +
-                 "Host: " + server + "\r\n" + 
-                 "Content-Type: application/json\r\n" + 
-                 "Content-Length: " + postData.length() + "\r\n" +
-                 "Connection: close\r\n\r\n" + 
-                 postData + "\r\n");
-
-    while (client.connected() || client.available()) {
-      if (client.available()) {
-        String response = client.readString();
-        Serial.println("Response:");
-        Serial.println(response);
-      }
-    }
-  } else {
-    Serial.println("POST Connection failed!");
-  }
-
-  client.stop();
-}
-
 void setup() {
+  randomSeed(analogRead(0));
   Serial.begin(9600);
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -677,8 +470,25 @@ void setup() {
   pinMode(button_a_pin, INPUT);
   pinMode(button_b_pin, INPUT);
 
-  WiFi.begin("PLAY_Swiatlowodowy_58D2", "6FqTVw@KWBf%");
+  current_network = 2;
 
+  networks[0].name = "Kasia Wroclaw";
+  networks[0].ssid = "T-Mobile_Swiatlowod_0895";
+  networks[0].password = "";
+  
+  networks[1].name = "Kasia Telatyn";
+  networks[1].ssid = "Orange_Swiatlowod_2B40";
+  networks[1].password = "Internet9";
+
+  networks[2].name = "Mateusz Zielona";
+  networks[2].ssid = "vfrnet";
+  networks[2].password = "alamakota";
+
+  networks[3].name = "Matusz Wroclaw";
+  networks[3].ssid = "PLAY_Swiatlowodowy_58D2";
+  networks[3].password = "6FqTVw@KWBf%";
+
+  connect_to_network(networks[current_network]);
 }
 
 int frame = 0;
@@ -698,7 +508,11 @@ unsigned long last_b_button_press = 0;
 int button_b_state;
 bool button_b_queued = false;
 
+
 void loop() {
+  if(first_download_from_server){
+    upload_stats_ticker.update();
+  }
   current_time = millis();
   button_a_state = digitalRead(button_a_pin);
   button_b_state = digitalRead(button_b_pin);
@@ -718,42 +532,83 @@ void loop() {
     }
   }
 
+  tick_delta = current_time - previous_tick_time;
+
   if(game_state != sleep){
 
-
-
-    if(button_a_queued){
-      option_selected += 1;
-      button_a_queued = false;
-    }
-
-
     frame_delta = current_time - previous_frame_time;
-    tick_delta = current_time - previous_tick_time;
-    if(frame_delta > 100){
-      previous_frame_time = current_time;
-      display.clearDisplay();
-      if(game_state == main_interface || game_state == feeding){
-        draw_stats(creature);
-        creature.draw(frame);
-        if(creature.state == watching_tv){
-          draw_tv(frame);
+    if(creature.state != playing_game){
+
+      if(button_a_queued){
+        option_selected += 1;
+        button_a_queued = false;
+      }
+      
+      if(frame_delta > 100){
+        previous_frame_time = current_time;
+        display.clearDisplay();
+        if(game_state == main_interface || game_state == feeding){
+          draw_stats(creature);
+          creature.draw(frame, display);
+          if(creature.state == watching_tv){
+            draw_tv(frame);
+          }
+        }
+
+
+        if(WiFi.status() != WL_CONNECTED){
+          display.drawBitmap(118, 54, no_wifi_icon_bmp, 8, 8, SSD1306_WHITE);
+
+        }else{
+          display.drawBitmap(118, 54, wifi_icon_bmp, 8, 8, SSD1306_WHITE);
+          if(!first_download_from_server){
+            retrieveStatsFromServer();
+            first_download_from_server = true;
+            Serial.println("Downloaded stats from server, starting upload ticker");
+            upload_stats_ticker.start();
+          }
+        }
+
+        draw_menu(game_state, option_selected, button_b_queued, game);
+
+        if(game_state == game_selection){
+          display.setCursor(2,2);
+          display.setTextSize(2);
+          display.println("Flappy\nDitto");
+          display.setTextSize(1);
+          display.setCursor(76, 2);
+          display.print("Top: ");
+          display.print(hi_score);
+        }
+
+        display.display();
+        if (frame < 5){
+            frame++;
+        }else{
+            frame = 0;
         }
       }
-      draw_menu(game_state, option_selected, button_b_queued, creature);
-
-      if(WiFi.status() != WL_CONNECTED){
-        display.drawBitmap(120, 56, no_wifi_icon_bmp, 8, 8, SSD1306_WHITE);
-
-      }else{
-        display.drawBitmap(120, 56, wifi_icon_bmp, 8, 8, SSD1306_WHITE);
+    }else{
+      if(button_a_queued){
+        creature.state = awaken;
+        game_state = game_selection;
+        upload_stats_ticker.resume();
       }
+      if(frame_delta > 50){
+        previous_frame_time = current_time;
+        display.clearDisplay();
 
-      display.display();
-      if (frame < 5){
-          frame++;
-      }else{
-          frame = 0;
+        int score = game.tick_and_draw(button_b_queued, display);
+
+        if(score > 0){
+          if(score > hi_score){
+            hi_score = score;
+          }
+          creature.state = awaken;
+          game_state = game_selection;
+          upload_stats_ticker.resume();
+        };
+        display.display();
       }
     }
 
@@ -768,7 +623,6 @@ void loop() {
   if(tick_delta > 1000){
     creature.tick();
     previous_tick_time = current_time;
-    Serial.println("Tick");
   }
 
 }
