@@ -26,7 +26,7 @@ class Creature{
     void updateFromJson(JsonObject& json);
     void toJson(JsonObject& json);
     void tick();
-    void draw(int frame,  Adafruit_SSD1306 &display);
+    void draw(int frame,  Adafruit_SSD1306 &display, bool hat, bool sweater);
     void put_to_sleep();
     void awake();
     void feed(int hunger_points);

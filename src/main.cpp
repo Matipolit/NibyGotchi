@@ -26,6 +26,8 @@ const int button_b_pin = 16;
 Creature creature;
 
 int hi_score = 0;
+int coins = 0;
+
 
 // NETWORK SHIT
 
@@ -36,6 +38,8 @@ const int port = 80;
 const char* hashed_password = NIBYGOTCHI_PASS_HASH;
 
 String serverPath = String("/nibygotchi?passwd=") + hashed_password;
+String serverCoinsPath = String("/nibygotchi/coins?passwd=") + hashed_password;
+String serverShopPath = String("/nibygotchi/shop?passwd=") + hashed_password;
 
 class Network {
   public:
@@ -56,24 +60,14 @@ int current_network;
 AsyncClient client;
 String jsonData = "";
 
-void uploadStatsToServer();
-void sendPostData();
+void upload_stats_to_server();
+void sendPostData(String data, String path);
 void onData(void* arg, AsyncClient* client, void* data, size_t len);
 void onDisconnect(void* arg, AsyncClient* client);
 
 bool first_download_from_server = false;
 
-void uploadStatsToServer() {
-  Serial.println("Running 'upload stats to server'");
-  if (WiFi.status() == WL_CONNECTED && !client.connected() && first_download_from_server) {
-    Serial.println("Client not connected");
-    sendPostData();
-  } else {
-    Serial.println("WiFi disconnected or client already connected.");
-  }
-}
-
-void sendPostData() {
+void upload_stats_to_server() {
   // Prepare the JSON data
   StaticJsonDocument<200> jsonDoc;
   jsonDoc["energy"] = creature.energy;
@@ -81,16 +75,57 @@ void sendPostData() {
   jsonDoc["fullness"] = creature.fullness;
   jsonDoc["hi_score"] = hi_score;
 
+  if(creature.state == awaken){
+    jsonDoc["state"] = "awaken";
+  }else if(creature.state == watching_tv){
+    jsonDoc["state"] = "watching_tv";
+  }else{
+    jsonDoc["state"] = "asleep";
+  }
+    
+
   String jsonStr;
   serializeJson(jsonDoc, jsonStr);
+
+  Serial.println("Running 'upload stats to server'");
+  if (WiFi.status() == WL_CONNECTED && !client.connected() && first_download_from_server) {
+    Serial.println("Client not connected");
+    sendPostData(jsonStr, serverPath);
+  } else {
+    Serial.println("WiFi disconnected or client already connected.");
+  }
+}
+
+void upload_coins_to_server(){
+  String coin_str = String(coins);
+  Serial.println("Running 'upload coins to server'");
+  if (WiFi.status() == WL_CONNECTED && !client.connected() && first_download_from_server) {
+    Serial.println("Client not connected");
+    sendPostData(coin_str, serverCoinsPath);
+  } else {
+    Serial.println("WiFi disconnected or client already connected.");
+  }
+}
+
+void upload_shop_item_to_server(String name){
+  Serial.println("Running 'upload shop item to server'");
+  if (WiFi.status() == WL_CONNECTED && !client.connected() && first_download_from_server) {
+    Serial.println("Client not connected");
+    sendPostData(name, serverShopPath);
+  } else {
+    Serial.println("WiFi disconnected or client already connected.");
+  }
+}
+
+void sendPostData(String data, String path) {
   
   // Create HTTP POST request
-  String request = String("POST ") + serverPath + " HTTP/1.1\r\n" +
+  String request = String("POST ") + path+ " HTTP/1.1\r\n" +
                    "Host: " + server + "\r\n" +
                    "Content-Type: application/json\r\n" +
-                   "Content-Length: " + String(jsonStr.length()) + "\r\n" +
+                   "Content-Length: " + String(data.length()) + "\r\n" +
                    "Connection: close\r\n\r\n" +
-                   jsonStr;
+                   data;
 
   client.onData(onData);
   client.onDisconnect(onDisconnect);
@@ -115,7 +150,7 @@ void onDisconnect(void* arg, AsyncClient* client) {
   jsonData = "";
 }
 
-void retrieveStatsFromServer() {
+void getJsonFromServer(std::function<void(JsonObject&)> callback,const String path) {
   Serial.println("Running 'retrieve stats from server'");
   AsyncClient* client = new AsyncClient();  // Create a new AsyncClient
 
@@ -125,20 +160,18 @@ void retrieveStatsFromServer() {
   }
 
   // Connect callback
-  client->onConnect([](void* arg, AsyncClient* client) {
+  client->onConnect([callback, path](void* arg, AsyncClient* client) {
     Serial.println("Connected to server");
 
     // Send the GET request to the server
-    String request = String("GET ") + serverPath + " HTTP/1.1\r\n" +
+    String request = String("GET ") + path + "HTTP/1.1\r\n" +
                      "Host: " + server + "\r\n" +
                      "Connection: close\r\n\r\n";
-
     client->write(request.c_str());
-
   }, nullptr);
 
   // Data receive callback
-  client->onData([](void* arg, AsyncClient* client, void* data, size_t len) {
+  client->onData([callback](void* arg, AsyncClient* client, void* data, size_t len) {
     static String jsonData = "";  // Hold the complete JSON data
     String response = String((char*)data).substring(0, len);  // Get data chunk
 
@@ -168,9 +201,7 @@ void retrieveStatsFromServer() {
           DeserializationError error = deserializeJson(doc, jsonBody);
           if (!error) {
             JsonObject json = doc.as<JsonObject>();
-            creature.updateFromJson(json);  // Assuming creature.updateFromJson is defined
-            hi_score = json["hi_score"];
-            Serial.println("Creature updated with server data.");
+            callback(json);  // Pass the JsonObject to the callback
           } else {
             Serial.print("Failed to parse JSON: ");
             Serial.println(error.c_str());
@@ -208,7 +239,91 @@ void retrieveStatsFromServer() {
   client->connect(server, port);  // Connect to the server
 }
 
-enum GameState {main_interface, options_interface, feeding, sleep, wifi_selection, game_selection};
+const int SHOP_ITEM_AMOUNT = 4;
+
+class ShopItem{
+  public:
+    String name;
+    int price;
+    const unsigned char* texture;
+    bool one_time_purchase;
+    void (*trigger_on_buy)();
+    bool bought;
+
+    ShopItem(String name, int price, const unsigned char* texture, bool one_time_purchase, void (*trigger_on_buy)()){
+      this->name = name;
+      this->price = price;
+      this->texture = texture;
+      this->one_time_purchase = one_time_purchase;
+      this->trigger_on_buy = trigger_on_buy;
+      this->bought = false;
+    }
+
+    bool purchase(){
+      if(price <= coins){
+        coins -= price;
+        upload_coins_to_server();
+        trigger_on_buy();
+        if(one_time_purchase){
+          upload_shop_item_to_server(name);
+          bought = true;
+        }
+        return true;
+      }
+      return false;
+    };
+};
+
+ShopItem shop_items[SHOP_ITEM_AMOUNT] = {
+  ShopItem("Potka Ener.", 30, energy_potion_bmp, false, []() -> void {
+           if(creature.energy + 20 > 100){
+             creature.energy = 100;
+           }else{
+             creature.energy += 20;
+           }
+        }),
+  ShopItem("Potka Szcz.", 30, happiness_potion_bmp, false, []() -> void {
+           if(creature.happiness + 20 > 100){
+             creature.happiness = 100;
+           }else{
+             creature.happiness += 20;
+           }
+        }),
+  ShopItem("Czapka", 100, shop_propeller_hat_bmp, true, []() -> void{}),
+  ShopItem("Sweter", 150, sweater_bmp, true, []() -> void{})
+};
+
+void retrieveStatsFromServer() {
+  getJsonFromServer([](JsonObject& json) {
+      creature.updateFromJson(json);
+      hi_score = json["hi_score"];
+      coins = json["coins"];
+      Serial.println("Creature updated with server data.");
+      JsonArray json_shop_items = json["shop_items"].as<JsonArray>();
+      if(!json_shop_items.isNull()){
+        Serial.println("Shop items: ");
+        for (JsonVariant value: json_shop_items) {
+          if (value.is<String>()) {
+            String item_name = value.as<String>();
+            for (int i = 0; i < SHOP_ITEM_AMOUNT; i++){
+              if(shop_items[i].one_time_purchase){
+                if(shop_items[i].name == item_name){
+                  Serial.println("Marking item: " + item_name + " as bought");
+                  shop_items[i].bought = true;
+                }
+              }
+            }
+          }
+        }
+      }else{
+        Serial.println("Shop items are null");
+      }
+    }, serverPath + "&update=true "
+  );
+}
+
+
+enum GameState {main_interface, options_interface, feeding, sleep, wifi_selection, game_selection, shop};
 
 void draw_stat(int whichInOrder, int value, const unsigned char *bitmap) {
   if(value > 100){
@@ -226,6 +341,9 @@ void draw_stats(Creature &creature){
     draw_stat(0, creature.energy, energy_bmp);
     draw_stat(1, creature.happiness, usmieszek_bmp);
     draw_stat(2, creature.fullness, fork_knife_bmp);
+    display.drawBitmap(96, 2, coin_bmp, 8, 8, SSD1306_WHITE);
+    display.setCursor(104, 2);
+    display.println(coins);
 }
 
 int draw_menu_option(bool selected, String text, int start_coord, int row){
@@ -244,12 +362,15 @@ int draw_menu_option(bool selected, String text, int start_coord, int row){
     length ++;
     display.write(c);
   }
+  display.setTextColor(SSD1306_WHITE);
   return length;
 }
 
-Ticker upload_stats_ticker(uploadStatsToServer, 15000);
+Ticker upload_stats_ticker(upload_stats_to_server, 15000);
 
-void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &game){
+
+
+void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &game, int &current_shop_item){
   switch(game_state){
     case options_interface:{
       int menu_selected = selected % 4;
@@ -262,18 +383,111 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &g
             game_state = sleep;
             display.clearDisplay();
             display.display();
-            menu_selected = 0;
+            selected = 0;
             break;
           }
           case 2: {
               game_state = wifi_selection;
-              menu_selected = 0;
+              selected = 0;
               break;
           }
           case 3: {
             game_state = main_interface;
-            menu_selected = 0;
+            selected = 0;
             break;
+          }
+        }
+        accept_queue = false;
+      }
+      break;
+    };
+    case shop: {
+      bool bought_item = shop_items[current_shop_item].bought;
+      int menu_selected;
+      if (bought_item){
+        menu_selected = selected % 4;
+      }else{
+        menu_selected = selected % 5;
+      }
+      int len = draw_menu_option(menu_selected==1, "<-", 2, 2);
+      if(!shop_items[current_shop_item].bought){
+        len += draw_menu_option(menu_selected==2, "kup", 8+len*6, 2);
+        len += draw_menu_option(menu_selected==3, "->", 14+len*6, 2);
+        draw_menu_option(menu_selected==4,"powrot",2 ,3);
+      }else{
+        len += draw_menu_option(menu_selected==2, "->", 8+len*6, 2);
+        draw_menu_option(menu_selected==3,"powrot",2 ,3);
+      }
+      if(accept_queue){
+        if(!shop_items[current_shop_item].bought){       
+          switch(menu_selected){
+            case 1: {
+                if(current_shop_item == 0){
+                  current_shop_item = SHOP_ITEM_AMOUNT -1;
+                }else{
+                  current_shop_item -= 1;
+                }
+                selected = 1;
+                break;
+              }
+            case 2: {
+                shop_items[current_shop_item].purchase();
+                selected = 2;
+                break;
+              }
+            case 3: {
+                int next_shop_item;
+                if(current_shop_item == SHOP_ITEM_AMOUNT -1){
+                  next_shop_item = 0;
+                }else{
+                  next_shop_item = current_shop_item + 1;
+                }
+
+                if(shop_items[next_shop_item].bought){
+                  selected = 2;
+                }
+
+                current_shop_item = next_shop_item;
+
+                break;
+              }
+            case 4: {
+                game_state = main_interface;
+                selected = 0;
+                break;
+              }
+          }
+        }else{
+          switch(menu_selected){
+            case 1: {
+                if(current_shop_item == 0){
+                  current_shop_item = SHOP_ITEM_AMOUNT -1;
+                }else{
+                  current_shop_item -= 1;
+                }
+                selected = 1;
+                break;
+              }
+            case 2: {
+                int next_shop_item;
+                if(current_shop_item == SHOP_ITEM_AMOUNT -1){
+                  next_shop_item = 0;
+                }else{
+                  next_shop_item = current_shop_item + 1;
+                }
+
+                if(!shop_items[next_shop_item].bought){
+                  selected = 3;
+                }
+
+                current_shop_item = next_shop_item;
+                break;
+              }
+            case 3: {
+                game_state = main_interface;
+                selected = 0;
+                break;
+              }
           }
         }
         accept_queue = false;
@@ -290,7 +504,7 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &g
       if(accept_queue){
         if(menu_selected == 5){
           game_state = main_interface;
-          menu_selected = 0;
+          selected = 0;
         }else{
           current_network = menu_selected - 1;
           connect_to_network(networks[current_network]);
@@ -327,12 +541,13 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &g
       int menu_selected;
       int len;
       if(creature.state == awaken){
-        menu_selected = selected % 6;
+        menu_selected = selected % 7;
         len = draw_menu_option(menu_selected==1, "uspij", 2, 2);
         len += draw_menu_option(menu_selected==2, "nakarm", 8+len*6, 2);
         len += draw_menu_option(menu_selected==3, "tv", 14+len*6, 2);
         len += draw_menu_option(menu_selected==4, "gry", 20+len*6, 2);
-        len += draw_menu_option(menu_selected==5, "opcje", 2, 3);
+        len = draw_menu_option(menu_selected==5, "sklep", 2, 3);
+        len += draw_menu_option(menu_selected==6, "opcje", 8+len*6, 3);
 
         if(accept_queue){
           switch(menu_selected){
@@ -357,6 +572,11 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &g
                 break;
               }
             case 5: {
+                game_state = shop;
+                selected = 0;
+                break;
+              }
+            case 6: {
               game_state = options_interface;
               selected = 0;
               break;
@@ -393,19 +613,19 @@ void draw_menu(GameState &game_state, int &selected, bool &accept_queue, Game &g
             case 1: {
               game_state = main_interface;
               creature.state = awaken;
-              menu_selected = 0;
+              selected = 0;
               break;
             }
             case 2: {
               game_state = feeding;
-              menu_selected = 0;
+              selected = 0;
               break;
             }
             case 3: {
-                game_state = options_interface;
-                selected = 0;
-                break;
-              }
+              game_state = options_interface;
+              selected = 0;
+              break;
+            }
           }
           accept_queue = false;
         }
@@ -448,9 +668,12 @@ void draw_tv(int frame){
   }
 }
 
+
+
 Game game;
 GameState game_state;
 int option_selected;
+int current_shop_item = 0;
 
 void setup() {
   randomSeed(analogRead(0));
@@ -470,7 +693,7 @@ void setup() {
   pinMode(button_a_pin, INPUT);
   pinMode(button_b_pin, INPUT);
 
-  current_network = 2;
+  current_network = 3;
 
   networks[0].name = "Kasia Wroclaw";
   networks[0].ssid = "T-Mobile_Swiatlowod_0895";
@@ -480,11 +703,11 @@ void setup() {
   networks[1].ssid = "Orange_Swiatlowod_2B40";
   networks[1].password = "Internet9";
 
-  networks[2].name = "Mateusz Zielona";
-  networks[2].ssid = "vfrnet";
-  networks[2].password = "alamakota";
+  networks[2].name = "Mateusz Spot";
+  networks[2].ssid = "MatipSpot";
+  networks[2].password = "ZarkaLubiJesc";
 
-  networks[3].name = "Matusz Wroclaw";
+  networks[3].name = "Mateusz Wroclaw";
   networks[3].ssid = "PLAY_Swiatlowodowy_58D2";
   networks[3].password = "6FqTVw@KWBf%";
 
@@ -549,7 +772,7 @@ void loop() {
         display.clearDisplay();
         if(game_state == main_interface || game_state == feeding){
           draw_stats(creature);
-          creature.draw(frame, display);
+          creature.draw(frame, display, shop_items[2].bought, shop_items[3].bought);
           if(creature.state == watching_tv){
             draw_tv(frame);
           }
@@ -569,7 +792,7 @@ void loop() {
           }
         }
 
-        draw_menu(game_state, option_selected, button_b_queued, game);
+        draw_menu(game_state, option_selected, button_b_queued, game, current_shop_item);
 
         if(game_state == game_selection){
           display.setCursor(2,2);
@@ -579,6 +802,18 @@ void loop() {
           display.setCursor(76, 2);
           display.print("Top: ");
           display.print(hi_score);
+        }
+
+        if(game_state == shop){
+          display.setCursor(104, 2);
+          display.println(coins);
+          display.drawBitmap(96, 2, coin_bmp, 8, 8, SSD1306_WHITE);
+          display.drawBitmap(4, 4, shop_items[current_shop_item].texture, 16, 16, SSD1306_WHITE);
+          display.setCursor(32, 4);
+          display.println(shop_items[current_shop_item].name);
+          display.drawBitmap(32, 16, coin_bmp, 8, 8, SSD1306_WHITE);
+          display.setCursor(44, 16);
+          display.println(shop_items[current_shop_item].price);
         }
 
         display.display();
@@ -598,15 +833,20 @@ void loop() {
         previous_frame_time = current_time;
         display.clearDisplay();
 
-        int score = game.tick_and_draw(button_b_queued, display);
+        GameFrameResult result = game.tick_and_draw(button_b_queued, display);
 
-        if(score > 0){
-          if(score > hi_score){
-            hi_score = score;
+        if(result.coin_earned){
+          coins ++;
+        }
+
+        if(result.score > 0){
+          if(result.score > hi_score){
+            hi_score = result.score;
           }
           creature.state = awaken;
           game_state = game_selection;
           upload_stats_ticker.resume();
+          upload_coins_to_server();
         };
         display.display();
       }

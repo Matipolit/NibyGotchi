@@ -35,6 +35,10 @@ void Creature::tick(){
     fullness_timer -= 5;
     happiness_timer -= 8;
     energy_timer -= 5;
+  }else if(state == watching_tv){
+    fullness_timer -= 2;
+    happiness_timer -= 3;
+    energy_timer -= 2;
   }
 
   if( happiness_timer <= 0){
@@ -90,23 +94,32 @@ void Creature::tick(){
   }
 }
 
-void Creature::draw(int frame, Adafruit_SSD1306 &display){
+void Creature::draw(int frame, Adafruit_SSD1306 &display, bool hat, bool sweater){
   if (state == awaken || state == watching_tv) {
-    display.drawBitmap(48, 2, body_frames[frame], 24, 24, SSD1306_WHITE);
+    display.drawBitmap(48, 4, body_frames[frame], 24, 24, SSD1306_WHITE);
     if (happiness > 50){
-      display.drawBitmap(56, 4, face_happy_bmp, 8, 8, SSD1306_WHITE);
+      display.drawBitmap(56, 6, face_happy_bmp, 8, 8, SSD1306_WHITE);
     }else{
-      display.drawBitmap(56, 4, face_sad_bmp, 8, 8, SSD1306_WHITE);
+      display.drawBitmap(56, 6, face_sad_bmp, 8, 8, SSD1306_WHITE);
     }
   }else{
-    display.drawBitmap(48, 2, body_4_bmp, 24, 24, SSD1306_WHITE);
-    display.drawBitmap(56, 4, face_asleep_bmp, 8, 8, SSD1306_WHITE);
+    display.drawBitmap(48, 4, body_4_bmp, 24, 24, SSD1306_WHITE);
+    display.drawBitmap(56, 6, face_asleep_bmp, 8, 8, SSD1306_WHITE);
 
   }
 
 
   if (special_state == sick){
     display.drawBitmap(72, 4, thermomether, 16, 16, SSD1306_WHITE);
+  }
+
+  if(hat){
+    display.drawBitmap(56, 0, hat_bmp, 8, 8, SSD1306_WHITE);
+  }
+
+  if(sweater){
+    display.drawBitmap(52, 12, sweater_black_bmp, 16, 16, SSD1306_BLACK);
+    display.drawBitmap(52, 12, sweater_bmp, 16, 16, SSD1306_WHITE);
   }
 }
 

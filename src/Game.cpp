@@ -3,6 +3,32 @@
 #include <Adafruit_SSD1306.h>
 #include <bitmaps.h>
 
+Coin::Coin() {}
+
+Coin::Coin(long start_coord, long end_coord){
+  position_x = random(start_coord, end_coord);
+  position_y = random(0, 64);
+  earned = false;
+}
+
+void Coin::draw(Adafruit_SSD1306& display){
+  if(!earned){
+    display.drawBitmap(round(position_x), position_y, coin_bmp, 8, 8, SSD1306_WHITE);
+  }
+}
+
+bool Coin::does_collide_with_player(int character_y){
+  if(!earned){
+    if(10 < position_x && position_x < 18){
+      if(character_y > (position_y) && character_y < (position_y + 8)){
+        earned = true;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 Cactus::Cactus() {}
 
 Cactus::Cactus(long start_coord, long end_coord){
@@ -55,7 +81,8 @@ Game::Game()
     speed_delta(0), 
     character_velocity(0.0), 
     character_y(0.0), 
-    rounded_character_y(0) 
+    rounded_character_y(0),
+    earned_coin(false)
 {
     // Initialize the cactuses array
     for (int i = 0; i < 4; i++) {
@@ -63,10 +90,15 @@ Game::Game()
         long end = start + 18;
         cactuses[i] = Cactus(start, end); // Assuming Cactus has this constructor
     }
+
+    for (int i = 0; i < 2; i++){
+      coins[i] = Coin(0, 128);
+    }
+    
 }
 
 
-int Game::tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display){
+GameFrameResult Game::tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display){
   /*
   Serial.printf("Character velocity: ");
   Serial.println(character_velocity);
@@ -77,6 +109,11 @@ int Game::tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display){
   */
 
   speed_delta ++;
+
+  GameFrameResult frame_result;
+
+  frame_result.score = -1;
+  frame_result.coin_earned = false;
 
   
   if(jump_button_queued){
@@ -99,18 +136,31 @@ int Game::tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display){
 
   rounded_character_y = round(character_y);
 
+  for(int i = 0; i < 2; i++){
+    coins[i].position_x -= speed;
+    if(coins[i].position_x <= -6){
+      long new_position = coins[i].position_x + 132;
+      coins[i] = Coin(new_position, new_position);      
+    }
+    coins[i].draw(display);
+    if(coins[i].does_collide_with_player(rounded_character_y)){
+      frame_result.coin_earned = true;
+    }
+  }
+
   for(int i = 0; i < 4; i++){
     cactuses[i].position -= speed;
-    if(cactuses[i].position <= 0){
-      long new_position = cactuses[i].position + 128;
+    if(cactuses[i].position <= -6){
+      long new_position = cactuses[i].position + 132;
       cactuses[i] = Cactus(new_position, new_position);
       score++;
     }
     cactuses[i].draw(display);
     if(cactuses[i].does_collide_with_player(rounded_character_y)){
-      return score;
+      frame_result.score = score;
     }
   }
+
 
   display.drawBitmap(10, rounded_character_y, body_small_bmp , 8, 8, SSD1306_WHITE);
   display.setCursor(102, 56);
@@ -119,5 +169,5 @@ int Game::tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display){
     speed += 0.1;
     speed_delta = 0;
   }
-  return -1;
+  return frame_result;
 }

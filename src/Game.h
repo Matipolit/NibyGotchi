@@ -15,6 +15,23 @@ class Cactus {
     bool does_collide_with_player(int character_y);
 };
 
+class Coin {
+  public:
+    Coin();
+    Coin(long start_coord, long end_coord);
+    float position_x;
+    int position_y;
+    bool earned;
+    void draw(Adafruit_SSD1306& display);
+    bool does_collide_with_player(int character_y);
+
+};
+
+struct GameFrameResult{
+  int score;
+  bool coin_earned;
+};
+
 class Game {
   private:
     int score;
@@ -24,10 +41,13 @@ class Game {
     float character_y;
     int rounded_character_y;
     Cactus cactuses[4];
+    Coin coins[2];
+    bool earned_coin;
 
   public:
     Game();
-    int tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display);
+    GameFrameResult tick_and_draw(bool& jump_button_queued, Adafruit_SSD1306& display);
 };
+
 
 #endif
